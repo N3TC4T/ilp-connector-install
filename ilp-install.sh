@@ -698,7 +698,7 @@ ilp-plugin-xrp-asym-server'
 
   if [[ -n "$PLUGINS" ]]; then
       show_message info "[+] Installing Plugins... "
-	  _exec "npm install ${PLUGINS/$'\n'/}"
+	  _exec "npm install ${PLUGINS//$'\n'/ }"
   else
 	  show_message info "[!] No Plugins to install."
   fi
