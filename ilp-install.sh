@@ -489,6 +489,10 @@ EOF
     sleep 30 #check again in SLEEP seconds
   done
 
+  show_message debug "Setting hostname using 'hostnamectl'"
+  # Set hostname
+  ${SUDO} hostnamectl set-hostname $HOSTNAME
+
   # ============================================== Subdomain DNS
 
   # CertBOt ==============================================
@@ -664,9 +668,9 @@ ilp-plugin-xrp-asym-server'
   elif [[ "${LSB_DISTRO}" == "centos" ]] && [[ "${CMAJOR}" == "6" ]];then
       _exec "rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm ; yum install -y gcc-c++ make epel-release git"
   elif [[ "${LSB_DISTRO}" == "ubuntu" ]];then
-      _exec "apt-get install -y software-properties-common ; add-apt-repository ppa:certbot/certbot ; apt-get install -y build-essential git"
+      _exec "apt-get install -y software-properties-common ; add-apt-repository ppa:certbot/certbot ; apt-get install -y build-essential git python-dev""
   elif [[ "${LSB_DISTRO}" == "debian" ]];then
-      _exec "apt-get update ; apt-get install -y build-essential git"
+      _exec "apt-get update ; apt-get install -y build-essential git python-dev""
   fi
 
   # Nodejs ==============================================
