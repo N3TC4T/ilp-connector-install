@@ -74,7 +74,7 @@ const connectorApp = {
     DEBUG,
     CONNECTOR_ENV: 'production'
   },
-  script: path.resolve('/srv/ilp-connector/src/index.js')
+  script: path.resolve('<ILP_INSTALLATION_DIR>/src/index.js')
 }
 
 // Ensure XRP config is provided

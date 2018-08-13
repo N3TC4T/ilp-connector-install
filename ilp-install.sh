@@ -788,8 +788,6 @@ ilp-plugin-xrp-asym-server'
   # export to profile file
   ${SUDO} echo -e "\nexport XRP_SECRET=${XRP_SECRET}\nexport XRP_ADDRESS=${XRP_ADDRESS}" >> "${PROFILE}"
 
-  # reload session with new variables
-  bash
 
   # check if config dir is Empty or not
   if [ -d "$CONFIG_DIR" ]; then
@@ -817,26 +815,27 @@ ilp-plugin-xrp-asym-server'
 
   # ilp-connector.conf
   ${SUDO} cp -r config/ilp-connector.conf.js ${CONFIG_DIR}
+  ${SUDO} sed -i -e "s|<ILP_INSTALLATION_DIR>|${INSTALLATION_DIR}|g" "${CONFIG_DIR}/ilp-connector.conf.js"
 
   # node.conf.js
   ${SUDO} cp -r config/node.conf.js ${CONFIG_DIR}
-  ${SUDO} sed -i -e "s/<ILP_ADDRESS>/${ILP_ADDRESS}/g" "${CONFIG_DIR}/node.conf.js"
+  ${SUDO} sed -i -e "s|<ILP_ADDRESS>|${ILP_ADDRESS}|g" "${CONFIG_DIR}/node.conf.js"
 
   # store.conf.js
   ${SUDO} cp -r config/store.conf.js ${CONFIG_DIR}
-  ${SUDO} sed -i -e "s/<CONNECTOR_DATA_PATH>/${INSTALLATION_DIR}\/connector-data/g" "${CONFIG_DIR}/store.conf.js"
+  ${SUDO} sed -i -e "s|<CONNECTOR_DATA_PATH>|${INSTALLATION_DIR}/connector-data|g" "${CONFIG_DIR}/store.conf.js"
 
 
   # ecosystem.config.js
   ${SUDO} cp -r config/ecosystem.config.js ${HOME}
-  ${SUDO} sed -i -e "s/<CONNECTOR_CONFIG_DIR>/${CONFIG_DIR}/g" "${HOME}/ecosystem.config.js"
+  ${SUDO} sed -i -e "s|<CONNECTOR_CONFIG_DIR>|${CONFIG_DIR}|g" "${HOME}/ecosystem.config.js"
 
 
   if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-paychan" ]]; then
     # xrp-peer-client.template.js
     ${SUDO} cp -r config/plugins/xrp-peer-client.template.js "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
-    ${SUDO} sed -i -e "s/<PEER_BTP_URL>/${PEER_BTP_URL}/g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
-    ${SUDO} sed -i -e "s/<PEER_RIPPLE_ADDRESS>/${PEER_RIPPLE_ADDRESS}/g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
+    ${SUDO} sed -i -e "s|<PEER_BTP_URL>|${PEER_BTP_URL}|g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
+    ${SUDO} sed -i -e "s|<PEER_RIPPLE_ADDRESS>|${PEER_RIPPLE_ADDRESS}|g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
   fi
 
 
@@ -847,6 +846,9 @@ ilp-plugin-xrp-asym-server'
   if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-mini-accounts" ]]; then
       ${SUDO} cp -r config/plugins/mini.conf.js "${CONFIG_DIR}/peers-available/"
   fi
+
+  # enable plugins
+  ${SUDO} ln -s "${CONFIG_DIR}/peers-available/*" "${CONFIG_DIR}/peers-enabled/"
 
 
   # ============================================== CONFIGURE PLUGINS
@@ -908,24 +910,6 @@ ilp-plugin-xrp-asym-server'
 
   # ============================================== ILP Connector
 
-
-  # START CONNECTOR ==============================================
-
-  new_line
-  read -p "[?] Start connector & moneyd-gui ? [y/N]: " -e START_PM2
-  if [[ "$START_PM2" = 'y' || "$START_PM2" = 'Y' ]]; then
-      show_message info "[*] Starting the connector ... "
-      _exec pm2 start "${HOME}/ecosystem.config.js"
-      show_message info "[*] Starting the moneyd-gui ... "
-      _exec pm2 start moneyd-gui
-  else
-      show_message warn "Connector is not start , you can start manually by running 'pm2 start ${HOME}/ecosystem.config.js' command "
-      show_message warn "Moneyd GUI is not start , you can start manually by running 'pm2 start moneyd-gui' command "
-  fi
-  new_line
-
-  # ============================================== START CONNECTOR
-
   # LOAD BALANCER ==============================================
 
   if ${ILP_ASYM_SERVER}  ; then
@@ -950,7 +934,11 @@ ilp-plugin-xrp-asym-server'
   new_line
   show_message done "[!] Congratulations , it's look like ILP Connector installed successfully!"
   new_line
-  show_message done "[-] You can monitor your connector with Moneyd-GUI : "
+  show_message done "- in order to complete installation please run 'source ${PROFILE}' "
+  show_message done "- Connector is not start , you can start manually by running 'pm2 start ${HOME}/ecosystem.config.js' command "
+  show_message done "- Moneyd GUI is not start , you can start manually by running 'pm2 start moneyd-gui' command "
+  new_line
+  show_message done "[-] You can also monitor your connector with Moneyd-GUI : "
   show_message done "[-] running 'ssh -N -L 7770:localhost:7770 root@YOUR_IP_ADDRESS' on your local system and view http://localhost:7770 on the browser"
   new_line
   new_line
