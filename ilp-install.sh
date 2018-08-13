@@ -37,6 +37,7 @@ SLEEP_SEC=10
 LOG_OUTPUT="/tmp/${0##*/}$(date +%Y-%m-%d.%H-%M)"
 CURRENT_USER="$(id -un 2>/dev/null || true)"
 INSTALLATION_DIR="/srv/app/ilp-connector"
+CONFIG_DIR="/etc/ilp-connector"
 CONNECTOR_REPO="https://github.com/interledgerjs/ilp-connector.git"
 ########## Nodejs ##########
 NODEJS_RPM_URL="https://rpm.nodesource.com/setup_10.x"
@@ -79,7 +80,51 @@ Running your own ILP connector , Add redundancy and liquidity to the ILP network
 EOF
 }
 
-function _box () {
+# Helpers ==============================================
+
+detect_profile() {
+  if [ -n "${PROFILE}" ] && [ -f "${PROFILE}" ]; then
+    echo "${PROFILE}"
+    return
+  fi
+
+  local DETECTED_PROFILE
+  DETECTED_PROFILE=''
+  local SHELLTYPE
+  SHELLTYPE="$(basename "/$SHELL")"
+
+  if [ "$SHELLTYPE" = "bash" ]; then
+    if [ -f "$HOME/.bashrc" ]; then
+      DETECTED_PROFILE="$HOME/.bashrc"
+    elif [ -f "$HOME/.bash_profile" ]; then
+      DETECTED_PROFILE="$HOME/.bash_profile"
+    fi
+  elif [ "$SHELLTYPE" = "zsh" ]; then
+    DETECTED_PROFILE="$HOME/.zshrc"
+  elif [ "$SHELLTYPE" = "fish" ]; then
+    DETECTED_PROFILE="$HOME/.config/fish/config.fish"
+  fi
+
+  if [ -z "$DETECTED_PROFILE" ]; then
+    if [ -f "$HOME/.profile" ]; then
+      DETECTED_PROFILE="$HOME/.profile"
+    elif [ -f "$HOME/.bashrc" ]; then
+      DETECTED_PROFILE="$HOME/.bashrc"
+    elif [ -f "$HOME/.bash_profile" ]; then
+      DETECTED_PROFILE="$HOME/.bash_profile"
+    elif [ -f "$HOME/.zshrc" ]; then
+      DETECTED_PROFILE="$HOME/.zshrc"
+    elif [ -f "$HOME/.config/fish/config.fish" ]; then
+      DETECTED_PROFILE="$HOME/.config/fish/config.fish"
+    fi
+  fi
+
+  if [ ! -z "$DETECTED_PROFILE" ]; then
+    echo "$DETECTED_PROFILE"
+  fi
+}
+
+_box () {
     str="$@"
     len=$((${#str}+4))
     for i in $(seq ${len}); do echo -n '.'; done;
@@ -88,7 +133,7 @@ function _box () {
     echo
 }
 
-function spin_wait() {
+spin_wait() {
   local -r SPIN_DELAY="0.1"
   local spinstr="⠏⠛⠹⠼⠶⠧"
   printf "  "
@@ -108,7 +153,7 @@ function spin_wait() {
   # printf "\r\033[K"
 }
 
-function _exec() {
+_exec() {
   local -i PID=
   local COMMAND=$1
   shift      ## Clip the first value of the $@, the rest are the options.
@@ -124,7 +169,7 @@ function _exec() {
   exec 3>&-
 }
 
-function program_is_installed {
+program_is_installed() {
   # set to 1 initially
   local return_=1
   # set to 0 if not found
@@ -133,7 +178,7 @@ function program_is_installed {
   echo "$return_"
 }
 
-function service_is_running {
+service_is_running() {
   # set to 1 initially
   local return_=0
   # set to 0 if not found
@@ -144,7 +189,7 @@ function service_is_running {
   echo "$return_"
 }
 
-function echo_if {
+echo_if() {
   if [ $1 == 1 ]; then
       echo -e "${LIGHT}${GREEN}✔ ${RESET}"
   else
@@ -410,7 +455,6 @@ choose_multiple() {
 			else
 				# add a new item line
 				CHOSEN_NUMBERS=$(printf "$CHOSEN_NUMBERS\n$CHOICE_NUMBER")
-
 			fi
 
 			_update_chosen
@@ -590,16 +634,30 @@ install()
   check_deps_initsystem
 
 
+  # BASIC CONFIGURE ==============================================
+
   show_message info "[-] I need to ask you a few questions before starting the configuring."
   show_message info "[-] You can leave the default options and just press enter if you are ok with them."
   new_line
   show_message info "┌ Configuring ILP ... "
+  # Installation path
   echo -e "\n│"
   echo "├ Choose a path to installing ILP : "
   while true; do
 	  read -p "├ Path: " -e -i ${INSTALLATION_DIR} INSTALLATION_DIR
 	  if [[ -z "$INSTALLATION_DIR" ]] ; then
 		  show_message error "Installation path cannot be empty... "
+	  else
+		  break
+	  fi
+  done
+  # Configuration Directory
+  echo -e "│"
+  echo "├ Choose a path to store config files :"
+  while true; do
+	  read -p "├ ILP Address: " -e -i ${CONFIG_DIR} CONFIG_DIR
+	  if [[ -z "$CONFIG_DIR" ]] ; then
+		  show_message error "Config path cannot be empty... "
 	  else
 		  break
 	  fi
@@ -615,7 +673,29 @@ install()
 		  break
 	  fi
   done
-  # Choose plugins to install ====================================
+  # XRP Wallet Address
+  echo -e "│"
+  echo "├ Please enter your XRP wallet address ? "
+  while true; do
+    read -p "├ Address: " -e XRP_ADDRESS
+    if [[ -z "$XRP_ADDRESS" ]] ; then
+        show_message error "Address cannot be Empty ... "
+    else
+        break
+    fi
+  done
+  echo -e "│"
+  # XRP Wallet secret
+  echo "├ Please enter your XRP wallet secret"
+  while true; do
+    read -p "├ Secret: " -e XRP_SECRET
+    if [[ -z "$XRP_SECRET" ]] || ! [[ "$XRP_SECRET" =~ ^s[a-zA-Z0-9]{28,}+$ ]] ; then
+        show_message error "Invalid Secret entered, try again... "
+    else
+        break
+    fi
+  done
+
   echo -e "│"
   echo "└ Please select plugins to install : "
   new_line
@@ -626,6 +706,58 @@ ilp-plugin-xrp-asym-server'
 
   choose_multiple
   PLUGINS=${CHOSEN_LINES}
+
+  # ============================================== BASIC CONFIGURE
+
+  # CONFIGURE PLUGINS ==============================================
+
+  new_line
+  show_message info "┌ [ ${LIGHT}${WHITE}Configuring Plugins${RESET} ] "
+  echo -e "\n│"
+
+  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-paychan" ]]; then
+      echo "├ [ ${LIGHT}${BLUE}ilp-plugin-xrp-paychan${RESET} ]"
+      echo -e "│"
+      # Peer BTP URL
+      echo "├ What is the BTP peer URL you wanna connect with?"
+      while true; do
+        read -p "├ BTP URL: " -e PEER_BTP_URL
+        if [[ -z "$PEER_BTP_URL" ]] ; then
+            show_message error "BTP URL cannot be Empty ... "
+        else
+            break
+        fi
+      done
+      echo -e "│"
+      # Peer BTP XRP address
+      echo "├ What is the your BTP Peer ripple address"
+      while true; do
+        read -p "├ BTP Ripple Address: " -e PEER_RIPPLE_ADDRESS
+        if [[ -z "$PEER_RIPPLE_ADDRESS" ]] ; then
+            show_message error "BTP peer ripple address cannot be Empty ... "
+        else
+            break
+        fi
+      done
+  fi
+
+  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-asym-server" ]] ; then
+      # set asym server true to ask load balancer config
+      ILP_ASYM_SERVER=true
+  fi
+
+  # ============================================== CONFIGURE PLUGINS
+
+  new_line
+  # if user wants to continue installation
+  while true; do
+    read -p "[?] Do you wish to continue installation ? " yn
+    case $yn in
+        [Yy]* ) break;;
+        [Nn]* ) exit;;
+        * ) echo "Please answer yes or no.";;
+    esac
+  done
 
 
   # check if installation dir is Empty or not
@@ -646,18 +778,78 @@ ilp-plugin-xrp-asym-server'
   # create installation dir
   ${SUDO} ${BASH_C} "mkdir -p ${INSTALLATION_DIR}"
 
+  ### Setup XRP address & secret
+  PROFILE="$(detect_profile)"
+  if [ -z "${PROFILE-}" ] ; then
+      show_message warn "Profile not found. Tried ${PROFILE} (as defined in \$PROFILE), ~/.bashrc, ~/.bash_profile, ~/.zshrc, and ~/.profile.\nWe gonna create one in ${PROFILE}"
+      ${SUDO} ${BASH_C} "touch ${PROFILE}"
+  fi
 
-  new_line
-  # if user wants to continue installation
-  while true; do
-    read -p "[?] Do you wish to continue installation ? " yn
-    case $yn in
-        [Yy]* ) break;;
-        [Nn]* ) exit;;
-        * ) echo "Please answer yes or no.";;
-    esac
-  done
+  # export to profile file
+  ${SUDO} echo -e "\nexport XRP_SECRET=${XRP_SECRET}\nexport XRP_ADDRESS=${XRP_ADDRESS}" >> "${PROFILE}"
 
+  # reload session with new variables
+  bash
+
+  # check if config dir is Empty or not
+  if [ -d "$CONFIG_DIR" ]; then
+	  if [[ -n "$(ls -A ${CONFIG_DIR})" ]]; then
+		  show_message warn "Config directory is not empty "
+		  new_line
+		  read -p "delete now? [y/N]: " -e DELETE
+
+		  if [[ "$DELETE" = 'y' || "$DELETE" = 'Y' ]]; then
+			  ${SUDO} ${BASH_C} "rm -rf ${CONFIG_DIR}"
+			  ${SUDO} ${BASH_C} "mkdir -p ${CONFIG_DIR}"
+			  ${SUDO} ${BASH_C} "mkdir -p ${CONFIG_DIR}/peers-available"
+              ${SUDO} ${BASH_C} "mkdir -p ${CONFIG_DIR}/peers-enabled"
+		  else
+		      show_message warn "Continue without removing config directory ..."
+		  fi
+	  fi
+  else
+      ${SUDO} ${BASH_C} "mkdir -p ${CONFIG_DIR}"
+      ${SUDO} ${BASH_C} "mkdir -p ${CONFIG_DIR}/peers-available"
+      ${SUDO} ${BASH_C} "mkdir -p ${CONFIG_DIR}/peers-enabled"
+  fi
+
+  # COPY AND CONFIGURE
+
+  # ilp-connector.conf
+  ${SUDO} cp -r config/ilp-connector.conf.js ${CONFIG_DIR}
+
+  # node.conf.js
+  ${SUDO} cp -r config/node.conf.js ${CONFIG_DIR}
+  ${SUDO} sed -i -e "s/<ILP_ADDRESS>/${ILP_ADDRESS}/g" "${CONFIG_DIR}/node.conf.js"
+
+  # store.conf.js
+  ${SUDO} cp -r config/store.conf.js ${CONFIG_DIR}
+  ${SUDO} sed -i -e "s/<CONNECTOR_DATA_PATH>/${INSTALLATION_DIR}\/connector-data/g" "${CONFIG_DIR}/store.conf.js"
+
+
+  # ecosystem.config.js
+  ${SUDO} cp -r config/ecosystem.config.js ${HOME}
+  ${SUDO} sed -i -e "s/<CONNECTOR_CONFIG_DIR>/${CONFIG_DIR}/g" "${HOME}/ecosystem.config.js"
+
+
+  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-paychan" ]]; then
+    # xrp-peer-client.template.js
+    ${SUDO} cp -r config/plugins/xrp-peer-client.template.js "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
+    ${SUDO} sed -i -e "s/<PEER_BTP_URL>/${PEER_BTP_URL}/g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
+    ${SUDO} sed -i -e "s/<PEER_RIPPLE_ADDRESS>/${PEER_RIPPLE_ADDRESS}/g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
+  fi
+
+
+  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-asym-server" ]]; then
+      ${SUDO} cp -r config/plugins/ilsp.conf.js "${CONFIG_DIR}/peers-available/"
+  fi
+
+  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-mini-accounts" ]]; then
+      ${SUDO} cp -r config/plugins/mini.conf.js "${CONFIG_DIR}/peers-available/"
+  fi
+
+
+  # ============================================== CONFIGURE PLUGINS
 
   # Repositories and required packages ====================================
 
@@ -695,7 +887,6 @@ ilp-plugin-xrp-asym-server'
   show_message info "[+] Installing ILP Connector... "
   _exec "git clone ${CONNECTOR_REPO} . ; npm install ; npm run build"
 
-
   # create connector data store directory
   ${SUDO} ${BASH_C} "mkdir -p ${INSTALLATION_DIR}/connector-data"
 
@@ -715,200 +906,8 @@ ilp-plugin-xrp-asym-server'
   _exec npm install moneyd-gui@latest -g --unsafe-perm
 
 
-
   # ============================================== ILP Connector
 
-
-  # CONFIGURE PLUGINS ==============================================
-
-  new_line
-  show_message info "┌ [ ${LIGHT}${WHITE}Configuring Plugins${RESET} ] "
-  echo -e "\n│"
-
-  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-paychan" ]]; then
-      echo "├ [ ${LIGHT}${BLUE}ilp-plugin-xrp-paychan${RESET} ]"
-      echo -e "│"
-
-      # Wallet Address
-      echo "├ Please enter your XRP wallet address ? "
-      while true; do
-        read -p "├ Address: " -e ADDRESS
-        if [[ -z "$ADDRESS" ]] ; then
-            show_message error "Address cannot be Empty ... "
-        else
-            break
-        fi
-      done
-      echo -e "│"
-      # Wallet secret
-      echo "├ Please enter your XRP wallet secret"
-      while true; do
-        read -p "├ Secret: " -e SECRET
-        if [[ -z "$SECRET" ]] || ! [[ "$SECRET" =~ ^s[a-zA-Z0-9]{28,}+$ ]] ; then
-            show_message error "Invalid Secret entered, try again... "
-        else
-            break
-        fi
-      done
-      echo -e "│"
-      # Peer BTP URL
-      echo "├ What is the BTP peer URL you wanna connect with?"
-      while true; do
-        read -p "├ BTP URL: " -e PEER_BTP_URL
-        if [[ -z "$PEER_BTP_URL" ]] ; then
-            show_message error "BTP URL cannot be Empty ... "
-        else
-            break
-        fi
-      done
-      echo -e "│"
-      # Peer BTP XRP address
-      echo "├ What is the your BTP Peer ripple address"
-      while true; do
-        read -p "├ BTP Ripple Address: " -e PEER_RIPPLE_ADDRESS
-        if [[ -z "$PEER_RIPPLE_ADDRESS" ]] ; then
-            show_message error "BTP peer ripple address cannot be Empty ... "
-        else
-            break
-        fi
-      done
-  fi
-
-  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-asym-server" ]] && [[ -z ${ADDRESS} ]]; then
-
-      # set asym server true to ask nginx config
-      ILP_ASYM_SERVER=true
-
-      echo "├ [ ${LIGHT}${BLUE}ilp-plugin-xrp-asym-server${RESET} ]"
-      echo -e "│"
-      # Wallet Address
-      echo "├ Please enter your XRP wallet address ? "
-      while true; do
-        read -p "├ Address: " -e ADDRESS
-        if [[ -z "$ADDRESS" ]] ; then
-            show_message error "Address cannot be Empty ... "
-        else
-            break
-        fi
-      done
-      echo -e "│"
-      # Wallet secret
-      echo "├ Please enter your XRP wallet secret"
-      while true; do
-        read -p "├ Secret: " -e SECRET
-        if [[ -z "$SECRET" ]] || ! [[ "$SECRET" =~ ^s[a-zA-Z0-9]{28,}+$ ]] ; then
-            show_message error "Invalid Secret entered, try again... "
-        else
-            break
-        fi
-      done
-      echo -e "│"
-  fi
-
-  # create temp config file in memory
-
-  CONFIG_TEMP=$(echo "$(mktemp)")
-
-  ${SUDO} echo -e "'use strict'; \n\nconst path = require('path');" >> ${CONFIG_TEMP}
-
-  if [[ -n "$ADDRESS" ]]; then
-      ${SUDO} echo -e "\nconst address = '${ADDRESS}';\nconst secret = '${SECRET}';" >> ${CONFIG_TEMP}
-  fi
-
-  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-paychan" ]]; then
-      ${SUDO} echo -e "
-const peerPlugin = {
-  relation: 'peer',
-  plugin: 'ilp-plugin-xrp-paychan',
-  assetCode: 'XRP',
-  assetScale: 9,
-  balance: {
-      maximum: '10000000',
-      settleThreshold: '-5000000',
-      settleTo: '0'
-  },
-  options: {
-      assetScale: 9,
-      server: '${PEER_BTP_URL}',
-      rippledServer: 'wss://s2.ripple.com',
-      peerAddress: '${PEER_RIPPLE_ADDRESS}',
-      address,
-      secret
-  }
-};" >> ${CONFIG_TEMP}
-
-      CONNECTOR_ACCOUNTS="peer: peerPlugin,"
-
-  fi
-
-
-  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-asym-server" ]]; then
-      echo -e "
-const ilspServer = {
-  relation: 'child',
-  plugin: 'ilp-plugin-xrp-asym-server',
-  assetCode: 'XRP',
-  assetScale: 6,
-  options: {
-      port: 7443,
-      xrpServer: 'wss://s2.ripple.com',
-      address,
-      secret
-  }
-}" >> ${CONFIG_TEMP}
-
-      CONNECTOR_ACCOUNTS+="ilsp: ilspServer,"
-  fi
-
-  if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-mini-accounts" ]]; then
-      echo -e "
-const miniAccounts = {
-  relation: 'child',
-  plugin: 'ilp-plugin-mini-accounts',
-  assetCode: 'XRP',
-  assetScale: 9,
-  options: {
-      port: 7768
-  }
-};" >> ${CONFIG_TEMP}
-
-      CONNECTOR_ACCOUNTS+="local: miniAccounts,"
-  fi
-
-
-  echo -n "
-const connectorApp = {
-  name: 'connector',
-  env: {
-      DEBUG: 'ilp*,connector*',
-      CONNECTOR_ILP_ADDRESS: '${ILP_ADDRESS}',
-      CONNECTOR_ENV: 'production',
-      CONNECTOR_BACKEND: 'one-to-one',
-      CONNECTOR_ADMIN_API: true,
-      CONNECTOR_ADMIN_API_PORT: 7769,
-      CONNECTOR_SPREAD: '0',
-      CONNECTOR_STORE_PATH: '${INSTALLATION_DIR}/connector-data',
-      CONNECTOR_ACCOUNTS: JSON.stringify({${CONNECTOR_ACCOUNTS}})
-  },
-  script: path.resolve(__dirname, 'src/index.js')
-};
-
-module.exports = { apps: [ connectorApp ] };" >> ${CONFIG_TEMP}
-
-  new_line
-  # edit the config file before continue
-  read -p "[?] Edit config file before continue ? [y/N]: " -e EDIT_CONFIG
-  if [[ "$EDIT_CONFIG" = 'y' || "$EDIT_CONFIG" = 'Y' ]]; then
-      if [ -z "$EDITOR" ]; then
-          EDITOR=$(which nano vi|head -n1)
-          export EDITOR
-      fi
-      ${EDITOR} ${CONFIG_TEMP}
-  fi
-
-  ${SUDO} mv ${CONFIG_TEMP} "${INSTALLATION_DIR}/launch.config.js"
-
-  # ============================================== CONFIGURE PLUGINS
 
   # START CONNECTOR ==============================================
 
@@ -916,11 +915,11 @@ module.exports = { apps: [ connectorApp ] };" >> ${CONFIG_TEMP}
   read -p "[?] Start connector & moneyd-gui ? [y/N]: " -e START_PM2
   if [[ "$START_PM2" = 'y' || "$START_PM2" = 'Y' ]]; then
       show_message info "[*] Starting the connector ... "
-      _exec pm2 start launch.config.js
+      _exec pm2 start "${HOME}/ecosystem.config.js"
       show_message info "[*] Starting the moneyd-gui ... "
       _exec pm2 start moneyd-gui
   else
-      show_message warn "Connector is not start , you can start manually by running 'pm2 start ${INSTALLATION_DIR}/launch.config.js' command "
+      show_message warn "Connector is not start , you can start manually by running 'pm2 start ${HOME}/ecosystem.config.js' command "
       show_message warn "Moneyd GUI is not start , you can start manually by running 'pm2 start moneyd-gui' command "
   fi
   new_line
@@ -929,7 +928,7 @@ module.exports = { apps: [ connectorApp ] };" >> ${CONFIG_TEMP}
 
   # LOAD BALANCER ==============================================
 
-  if $ILP_ASYM_SERVER  ; then
+  if ${ILP_ASYM_SERVER}  ; then
         while true; do
             new_line
             echo -n "[-] Looks like you want to run and ILP connector [ asym server ] "
