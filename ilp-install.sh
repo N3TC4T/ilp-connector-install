@@ -786,7 +786,7 @@ ilp-plugin-xrp-asym-server'
   fi
 
   # export to profile file
-  ${SUDO} echo -e "\nexport XRP_SECRET=${XRP_SECRET}\nexport XRP_ADDRESS=${XRP_ADDRESS}" >> "${PROFILE}"
+  ${SUDO} echo -e "\nexport XRP_SECRET=${XRP_SECRET}\nexport XRP_ADDRESS=${XRP_ADDRESS}\nexport ILP_CONFIG_DIR=${CONFIG_DIR}" >> "${PROFILE}"
 
 
   # check if config dir is Empty or not
