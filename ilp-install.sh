@@ -834,8 +834,8 @@ ilp-plugin-xrp-asym-server'
   if [[ " ${PLUGINS[@]} " =~ "ilp-plugin-xrp-paychan" ]]; then
     # xrp-peer-client.template.js
     ${SUDO} cp -r config/plugins/xrp-peer-client.template.js "${CONFIG_DIR}/peers-available/xrp-peer.conf.js"
-    ${SUDO} sed -i -e "s|<PEER_BTP_URL>|${PEER_BTP_URL}|g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
-    ${SUDO} sed -i -e "s|<PEER_RIPPLE_ADDRESS>|${PEER_RIPPLE_ADDRESS}|g" "${CONFIG_DIR}/peers-available/xrp-init-peer.js"
+    ${SUDO} sed -i -e "s|<PEER_BTP_URL>|${PEER_BTP_URL}|g" "${CONFIG_DIR}/peers-available/xrp-peer.conf.js"
+    ${SUDO} sed -i -e "s|<PEER_RIPPLE_ADDRESS>|${PEER_RIPPLE_ADDRESS}|g" "${CONFIG_DIR}/peers-available/xrp-peer.conf.js"
   fi
 
 
